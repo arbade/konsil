@@ -1,0 +1,18 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "konsil-marketplace",
+  "version": "0.1.0",
+  "description": "Marketplace for the Konsil AI medical board plugin",
+  "owner": {
+    "name": "arbade",
+    "email": "ardabthn@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "konsil",
+      "description": "AI medical case-review board: independent specialist agents, verified citations, dissent-preserving minutes, longitudinal case files, deterministic 3D imaging scene.",
+      "source": "./",
+      "category": "health"
+    }
+  ]
+}
