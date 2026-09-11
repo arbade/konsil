@@ -258,10 +258,12 @@ Any FAIL is fixed **from the transcripts only** and the failed checklist re-runs
 Requires [Claude Code](https://claude.com/claude-code).
 
 ```bash
-# 1. Get the repo
-git clone <this-repo-url> ~/konsil
+# One-liner (straight from GitHub):
+claude plugin marketplace add arbade/konsil
+claude plugin install konsil@konsil-marketplace -y
 
-# 2. Add it as a local plugin marketplace and install
+# — or from a local clone:
+git clone https://github.com/arbade/konsil ~/konsil
 claude plugin marketplace add ~/konsil --scope local
 claude plugin install konsil@konsil-marketplace -y
 
