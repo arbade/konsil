@@ -233,7 +233,7 @@ flowchart LR
 
 #### Viewer gallery — everything the browser scene does
 
-All of the below is the shipped `viewer.html` / pipeline output on the same consented MRI (see hero-image note). Deterministic, local, zero AI on pixels:
+All of the below is the shipped `viewer.html` / pipeline output on two consented studies — the author's own knee MRI and a family member's abdominal CT (shared with the patient's consent; DICOM identity fields anonymized, no burned-in identity in any frame, and genital anatomy excluded from every published visual). Deterministic, local, zero AI on pixels:
 
 | | |
 |---|---|
@@ -242,7 +242,9 @@ All of the below is the shipped `viewer.html` / pipeline output on the same cons
 | <img src="docs/assets/mesh-overlay.gif" width="330" alt="Segmented femur mesh rendered solo"/> | **Per-structure mesh** — TotalSegmentator's femur mesh rendered on its own (solo ◐); the same output feeds the board structure names, volumes and laterality as *text* |
 | <img src="docs/assets/mpr-sweep.gif" width="330" alt="Multiplanar reconstruction with moving crosshair and segmentation overlay"/> | **MPR (multiplanar) view** — synced sagittal/coronal/axial panes with crosshair; the focused structure's segmentation mask is overlaid on the slices |
 | <img src="docs/assets/series-tour.gif" width="330" alt="Series switcher cycling four MR sequences"/> | **Series switcher** — Sagittal T1 / Sagittal PD / Coronal PD-T2 / Axial PD from one DICOM disc |
-| <img src="docs/assets/organ-focus.gif" width="330" alt="Slice-focus on a structure with the written-report annotation panel"/> | **Slice-focus + report annotations** — ⌖ jumps the MPR crosshair to the structure's centroid and the sidebar quotes the radiologist's *written* findings for it (`annotations.json`); findings with no segmented structure are listed as "not localizable" |
+| <img src="docs/assets/organ-focus.gif" width="330" alt="Slice-focus on a structure with the written-report annotation panel"/> | **Slice-focus + report annotations** — ⌖ jumps the MPR crosshair to the structure (or to the report's described region) and the sidebar quotes the radiologist's *written* findings for it (`annotations.json`); findings with no segmented structure are listed as "not localizable" |
+| <img src="docs/assets/abdomen-organs-3d.gif" width="330" alt="Rotating segmented abdominal organ set from a non-contrast CT"/> | **Full-organ scene (abdominal CT)** — all TotalSegmentator structures with per-organ show/hide, solo and Turkish labels; 78 structures from one non-contrast CT |
+| <img src="docs/assets/abdomen-report-focus.gif" width="330" alt="Report marker: the written finding's region highlighted on the kidney with an approximate 3D label"/> | **Report markers** — the written report's own location words ("orta kortikal alan") map to the structure's upper/mid/lower third by pure geometry; the viewer draws a "~" 3D label there and quotes the finding. **Never** pixel interpretation: an approximate region, not the lesion's position |
 
 Every case ships the *same* data-driven viewer (`skills/imaging-3d/assets/viewer.html` + per-case `scene.json`; NiiVue is vendored, so it works offline). The grouped structure panel gives per-organ show/hide, **solo** (◐ — isolate one structure) and **slice-focus** (⌖ — jump the MPR crosshair to that organ's centroid and overlay its segmentation mask on the slices). Structure names, groups and colors are mapped to Turkish deterministically in `scripts/build_scene_viewer.py`.
 

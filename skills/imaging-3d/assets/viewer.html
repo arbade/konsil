@@ -46,6 +46,7 @@ summary:hover{color:#fff}
   <button id="mRender" class="active">3D Render</button>
   <button id="mMPR">Kesitler (MPR)</button>
   <span class="ctl">Görüntü opaklığı <input id="op" type="range" min="0" max="1" step="0.01" value="1"></span>
+  <span class="ctl">Yakınlaştır <input id="zoom" type="range" min="0.5" max="2" step="0.05" value="1"></span>
   <span class="ctl" id="clipWrap">Clip <input id="clip" type="range" min="0" max="1" step="0.01" value="1"></span>
   <button id="btnReset" title="Varsayılan görünüme dön">Sıfırla</button>
 </div>
@@ -83,7 +84,7 @@ function redraw() {
   if (!nv) return;
   nv.drawScene();
   clearTimeout(redrawT);
-  redrawT = setTimeout(() => { try { nv.drawScene(); } catch (_) {} }, 400);
+  redrawT = setTimeout(() => { try { nv.drawScene(); syncZoomSlider(); } catch (_) {} }, 400);
 }
 const withTimeout = (p, ms, what) => Promise.race([p,
   new Promise((_, rej) => setTimeout(() => rej(new Error(what + ": zaman aşımı")), ms))]);
@@ -95,6 +96,85 @@ const rows = {};   // name -> {row, cb, solo, s}
 let annByName = {}; // structure name -> [{source, text}] (annotations.json; yoksa boş)
 let annNote = "";   // annotations.json üst-düzey provenance/disclaimer notu
 const setVolOpacity = v => { if (nv && nv.volumes.length) nv.setOpacity(0, v); };
+// zoom: 3D render'da volScaleMultiplier, MPR kesitlerinde pan2Dxyzmm — her modda tutarlı.
+// Aralık [0.5, 2]: NiiVue'nun kendi tekerlek zoom'u da bu aralığa kırpar, kaydıraçla çelişmesin.
+// MPR'da pan telafisi ŞART (NiiVue'nun kendi zoom yolu gibi): yoksa pencere crosshair'den kayar.
+function setZoom(z) {
+  if (!nv) return;
+  z = Math.min(2, Math.max(0.5, z));
+  nv.scene.volScaleMultiplier = z;
+  const p = nv.scene.pan2Dxyzmm;
+  const old = p[3] || 1;
+  let mm = [0, 0, 0];
+  try { mm = nv.frac2mm(nv.scene.crosshairPos); } catch (_) {}
+  nv.scene.pan2Dxyzmm = [p[0] + (old - z) * mm[0], p[1] + (old - z) * mm[1], p[2] + (old - z) * mm[2], z];
+  mark("zoom", z);
+  redraw();
+}
+// tekerlekle yapılan render zoom'u kaydıraca geri yansıt (tek yönlü kopukluk olmasın)
+function syncZoomSlider() {
+  if (!nv) return;
+  const v = nv.scene.volScaleMultiplier;
+  if (Math.abs(parseFloat($("zoom").value) - v) > 0.01) $("zoom").value = v;
+}
+
+// --- rapor işaretçileri: yazılı raporun tarif ettiği BÖLGE, yapının kendi maskesinin
+// üst/orta/alt üçte-birlik geometrisiyle işaretlenir (salt geometri — piksel yorumu değil,
+// lezyonun kesin yeri değil; etiketler ≈ ile yaklaşıklığı söyler) ---
+function regionAnchor(mesh, region) {
+  const p = mesh.pts;
+  let zmin = Infinity, zmax = -Infinity;
+  for (let i = 2; i < p.length; i += 3) { if (p[i] < zmin) zmin = p[i]; if (p[i] > zmax) zmax = p[i]; }
+  let lo = zmin, hi = zmax; // scanner uzayında +Z = superior (üst)
+  if (region === "upper") lo = zmin + (zmax - zmin) * 2 / 3;
+  else if (region === "lower") hi = zmin + (zmax - zmin) / 3;
+  else if (region === "mid") { lo = zmin + (zmax - zmin) / 3; hi = zmin + (zmax - zmin) * 2 / 3; }
+  let x = 0, y = 0, z = 0, n = 0;
+  for (let i = 0; i < p.length; i += 3) { const zz = p[i + 2]; if (zz >= lo && zz <= hi) { x += p[i]; y += p[i + 1]; z += zz; n++; } }
+  return n ? [x / n, y / n, z / n] : null;
+}
+
+function clearMarkers() {
+  try { if (nv?.document?.labels?.length) { nv.document.labels.length = 0; mark("labels", 0); } } catch (_) {}
+}
+
+// NiiVue etiket fontu YALNIZCA ASCII 32-126 glif içeriyor; eksik glif SESSİZCE düşer —
+// "40×31" -> "4031", "94 cm³" -> "94 cm" (birim değişir!). Her non-ASCII karakteri güvenle indir:
+// önce açık harita, sonra NFKD ayrıştırması (³->3, ğ->g), en son görünür "?" (sessiz kayıp yerine).
+const LABEL_CH = { "≈": "~", "×": "x", "—": "-", "–": "-", "“": '"', "”": '"', "’": "'",
+  "ı": "i", "İ": "I", "µ": "u", "°": " deg" };
+const asciiLabel = t => [...t].map(c => {
+  if (c.charCodeAt(0) <= 126) return c;
+  if (LABEL_CH[c] !== undefined) return LABEL_CH[c];
+  const d = c.normalize("NFKD").replace(/\p{M}/gu, "");
+  return (d && [...d].every(x => x.charCodeAt(0) <= 126)) ? d : "?";
+}).join("");
+
+const REGIONS = ["upper", "mid", "lower", "center"];
+function addMarkers(s) {
+  clearMarkers();
+  // aynı bölgedeki işaretçileri TEK etikette birleştir: uzamsal ofset anatomik yön uydurur, yapma
+  const byRegion = {};
+  (annByName[s.name] || []).filter(a => a.marker).forEach(a => {
+    let reg = a.marker.region || "center";
+    if (!REGIONS.includes(reg)) { console.warn(`bilinmeyen marker bölgesi "${reg}" — center varsayıldı`); reg = "center"; }
+    (byRegion[reg] ??= []).push(a.marker.label || a.text.slice(0, 40));
+  });
+  let anchor = null;
+  for (const [reg, texts] of Object.entries(byRegion)) {
+    const pt = regionAnchor(s._mesh, reg);
+    if (!pt) continue;
+    if (!anchor) anchor = pt;
+    try {
+      nv.addLabel(asciiLabel("~ " + texts.join("  |  ")),
+        { textColor: [1, 0.85, 0.4, 1], textScale: 0.9, bulletScale: 0.3,
+          bulletColor: [1, 0.35, 0.2, 1], lineWidth: 2, lineColor: [1, 0.45, 0.3, 0.9] },
+        pt);
+      mark("labels", nv.document.labels.length);
+    } catch (e) { console.warn("label eklenemedi", e); }
+  }
+  return anchor; // varsa crosshair bu bölgeye gitsin (tüm-organ merkezinden daha isabetli)
+}
 
 // --- annotations: yazılı rapor alıntıları, yapı adına eşlenmiş (asla piksel yorumu değil) ---
 function showAnnotations(s) {
@@ -133,6 +213,8 @@ $("mRender").onclick = () => setMode("render");
 $("mMPR").onclick = () => setMode("mpr");
 $("op").oninput = e => { const v = parseFloat(e.target.value); if (mode === "render") renderOpacity = v; setVolOpacity(v); };
 $("clip").oninput = e => { if (nv) nv.setClipPlane([parseFloat(e.target.value) * 2 - 1, 0, 120]); };
+$("zoom").oninput = e => setZoom(parseFloat(e.target.value));
+$("gl").addEventListener("wheel", () => setTimeout(syncZoomSlider, 150), { passive: true });
 $("series").onchange = e => loadSeries(e.target.value).catch(err => setStatus(err.message, true));
 $("allOn").onclick = () => setAll(s => true);
 $("allOff").onclick = () => setAll(s => false);
@@ -147,6 +229,8 @@ $("btnReset").onclick = async () => {
   setVolOpacity(renderOpacity);
   $("clip").value = 1;
   if (nv) nv.setClipPlane([1, 0, 120]);
+  $("zoom").value = 1;
+  setZoom(1);
   setStatus("");
   setMode("render");
 };
@@ -243,6 +327,7 @@ async function clearFocus() {
   focusedName = null;
   mark("focused", ""); mark("overlay", false);
   $("annBox").hidden = true;
+  clearMarkers();
   overlayVol = null;
   // handle'ı kaybolmuş (öksüz) maskeler dahil: ana görüntü dışındaki tüm volumeleri kaldır
   if (nv) { while (nv.volumes.length > 1) { try { nv.removeVolume(nv.volumes[nv.volumes.length - 1]); } catch (_) { break; } } }
@@ -256,13 +341,22 @@ async function focusStructure(s) {
   if (seq !== focusSeq) return; // arada başka odak/temizlik oldu
   if (s._err || !s._mesh) { setStatus(`${s.label} yüklenemedi — odaklanamıyor`, true); return; }
   setMode("mpr");
-  // centroid from mesh vertices (scanner mm space)
+  // rapor işaretçisi varsa crosshair o bölgeye; yoksa tüm-organ merkezine
   try {
-    const p = s._mesh.pts; let x = 0, y = 0, z = 0; const n = p.length / 3;
-    for (let i = 0; i < p.length; i += 3) { x += p[i]; y += p[i + 1]; z += p[i + 2]; }
-    const frac = nv.mm2frac([x / n, y / n, z / n]);
-    nv.scene.crosshairPos = frac;
+    let target = addMarkers(s);
+    if (!target) {
+      const p = s._mesh.pts; let x = 0, y = 0, z = 0; const n = p.length / 3;
+      for (let i = 0; i < p.length; i += 3) { x += p[i]; y += p[i + 1]; z += p[i + 2]; }
+      target = [x / n, y / n, z / n];
+    }
+    nv.scene.crosshairPos = nv.mm2frac(target);
+    // pan'ı yeni crosshair'e göre yeniden kur (pan = (1−zoom)·mm, NiiVue'nun kendi zoom formu):
+    // önceki odaktan birikmiş pan pencereyi kaydırıp yeni odağı ekran dışında bırakabilir
+    const pz = nv.scene.pan2Dxyzmm[3] || 1;
+    nv.scene.pan2Dxyzmm = [(1 - pz) * target[0], (1 - pz) * target[1], (1 - pz) * target[2], pz];
   } catch (e) { console.warn("crosshair focus failed", e); }
+  const hasMarker = (annByName[s.name] || []).some(a => a.marker);
+  const focusMsg = `Odak: ${s.label} — scroll ile kesitlerde gezin${hasMarker ? " · işaret YAKLAŞIK bölgedir, lezyonun kesin yeri değil" : ""}`;
   if (s.seg) {
     setStatus(`Maske yükleniyor: ${s.label}…`);
     // await ETME: geç çözülen maske bayatsa hemen kaldırılır — öksüz overlay kalmaz
@@ -270,7 +364,7 @@ async function focusStructure(s) {
       if (seq !== focusSeq) { try { nv.removeVolume(v); } catch (_) {} return; }
       overlayVol = v;
       mark("overlay", true);
-      setStatus(`Odak: ${s.label} — scroll ile kesitlerde gezin`);
+      setStatus(focusMsg);
       redraw();
     }).catch(() => { if (seq === focusSeq) setStatus(`Maske yüklenemedi: ${s.label}`, true); });
   }
@@ -280,7 +374,7 @@ async function focusStructure(s) {
   mark("focused", s.name);
   nv.updateGLVolume();
   redraw();
-  setStatus(`Odak: ${s.label} — scroll ile kesitlerde gezin`);
+  setStatus(focusMsg);
 }
 
 // --- sidebar ---
@@ -312,7 +406,8 @@ function buildSidebar() {
       const solo = document.createElement("button"); solo.className = "rowbtn solo-btn"; solo.textContent = "◐";
       solo.title = "Solo — sadece bu yapıyı göster"; solo.onclick = () => toggleSolo(s);
       const foc = document.createElement("button"); foc.className = "rowbtn focus-btn"; foc.textContent = "⌖";
-      foc.title = "Kesitlerde odakla — MPR'da bu organın merkezine git"; foc.onclick = () => focusStructure(s).catch(e => setStatus(e.message, true));
+      foc.title = "Kesitlerde odakla — rapor işaretçisi varsa o bölgeye, yoksa organ merkezine gider (yaklaşık)";
+      foc.onclick = () => focusStructure(s).catch(e => setStatus(e.message, true));
       row.append(cb, sw, nm, solo, foc);
       if ((annByName[s.name] || []).length) {
         const ab = document.createElement("button"); ab.className = "annbadge"; ab.textContent = "📄";
@@ -367,6 +462,9 @@ async function init() {
   const { Niivue } = await import("./niivue.esm.js");
   nv = new Niivue({ backColor: [0.055, 0.055, 0.06, 1], show3Dcrosshair: true });
   nv.attachTo("gl");
+  // MPR'da render karosu HEP açık (SHOW_RENDER.ALWAYS = 1, sayısal enum — string atama sessizce
+  // NEVER gibi davranır): karo yokken etiket kılavuz çizgileri kanvasın köşesine çizilir
+  try { nv.opts.multiplanarShowRender = 1; } catch (_) {}
   window.nv = nv; window.__konsil = { get scene() { return scene; }, get mode() { return mode; }, rows, focusStructure, setMode };
 
   mark("nv", 1);
@@ -386,6 +484,7 @@ async function init() {
     applyVisible(defaults[i]);
   }
   setMode(mode); // init sırasında tıklanmış olabilecek modu şimdi gerçekten uygula
+  setZoom(parseFloat($("zoom").value)); // init sırasında oynatılmış kaydıracı da uygula
   nv.updateGLVolume();
   redraw();
   mark("ready", 1);

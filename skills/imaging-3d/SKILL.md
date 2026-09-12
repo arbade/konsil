@@ -47,10 +47,13 @@ After the scene is built, read the case file's imaging-report findings and write
 ```json
 {
   "note": "provenance + 'yorum radyoloğa aittir' disclaimer",
-  "annotations": [{"structure": "kidney_right", "source": "US raporu 10.09.2026", "text": "verbatim quote"}],
+  "annotations": [{"structure": "kidney_right", "source": "US raporu 10.09.2026", "text": "verbatim quote",
+                   "marker": {"region": "mid", "label": "40×31 mm miks lezyon — rapor: orta kortikal alan"}}],
   "not_localizable": [{"source": "...", "text": "..."}]
 }
 ```
+
+`marker` is optional and maps the report's own REGION wording to structure geometry: `region` is one of `upper|mid|lower|center` ("üst pol"→`upper`, "orta ..."→`mid`, "alt pol"→`lower`), chosen from the report TEXT only. The viewer anchors it at the centroid of that superior–inferior third of the structure's own mesh — pure geometry on the deterministic segmentation, never pixel interpretation — draws a 3D label there (prefixed "≈") and jumps the ⌖ crosshair to it. A marker is NOT the lesion's exact position; the `note` must say so. If the report gives no location wording, omit `marker`.
 
 The viewer picks this file up automatically (optional — absent file changes nothing): structures with annotations get a 📄 badge, the quotes appear in the sidebar panel when the badge is clicked or the structure is slice-focused (⌖), and `not_localizable` items are listed at the bottom of the sidebar.
 
