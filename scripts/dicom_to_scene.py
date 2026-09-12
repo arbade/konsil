@@ -22,6 +22,7 @@ def main():
     ap.add_argument("--fast", action="store_true")
     ap.add_argument("--device", default="mps")
     ap.add_argument("--mr", action="store_true", help="use total_mr task for MRI")
+    ap.add_argument("--title", default="Konsil 3D Scene", help="viewer title, e.g. 'Konsil — Abdomen BT (23.05.2026)'")
     a = ap.parse_args()
 
     out = Path(a.out_dir); out.mkdir(parents=True, exist_ok=True)
@@ -72,27 +73,9 @@ def main():
     (out / "structures.json").write_text(json.dumps(structures, indent=2))
     print(f"-- {len(structures)} structures -> structures.json")
 
-    # 4. Viewer
-    mesh_list = ",\n      ".join(
-        json.dumps({"url": s["mesh"], "rgba255": [200, 120, 120, 255]}) for s in structures
-    )
-    (out / "viewer.html").write_text(f"""<!doctype html>
-<html><head><meta charset="utf-8"><title>Konsil 3D Scene</title>
-<style>html,body{{margin:0;height:100%;background:#111;color:#ddd;font:14px sans-serif}}
-#gl{{width:100%;height:92%}} #bar{{padding:8px}}</style></head>
-<body>
-<div id="bar">Konsil 3D scene — communication aid only; interpretation belongs to the written radiology report. Drag=rotate, scroll=zoom.</div>
-<canvas id="gl"></canvas>
-<script type="module">
-import * as niivue from "https://unpkg.com/@niivue/niivue@latest/dist/index.js";
-const nv = new niivue.Niivue({{show3Dcrosshair:false, backColor:[0.07,0.07,0.07,1]}});
-nv.attachTo("gl");
-await nv.loadVolumes([{{url:"nifti/{vol.name}", opacity:0.15}}]);
-await nv.loadMeshes([
-      {mesh_list}
-]);
-nv.setSliceType(nv.sliceTypeRender);
-</script></body></html>""")
+    # 4. Viewer — shared template + scene.json (see build_scene_viewer.py)
+    from build_scene_viewer import build as build_viewer
+    build_viewer(out, title=a.title, volumes=[{"label": vol.name.replace(".nii.gz", ""), "url": f"nifti/{vol.name}"}])
     print(f"-- open {out/'viewer.html'} in a browser (serve dir: python3 -m http.server -d {out})")
 
 if __name__ == "__main__":

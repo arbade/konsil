@@ -20,9 +20,13 @@ cases/<case-id>/inbox/DICOM/
       2. TotalSegmentator (default task) → per-structure NIfTI masks
       3. marching cubes (scikit-image) → decimated STL per structure (trimesh)
       4. structure volumes (ml) → structures.json  (this structured data MAY be given to the board as text)
-      5. viewer.html (NiiVue via CDN) → volume + meshes, per-structure toggle/opacity
-  → cases/<case-id>/scene/   (open viewer.html in a browser)
+      5. scripts/build_scene_viewer.py → scene.json (Turkish labels/groups/colors per structure)
+         + copies the SHARED viewer template skills/imaging-3d/assets/viewer.html
+  → cases/<case-id>/scene/   (serve the dir: python3 -m http.server -d scene/, open viewer.html)
 ```
+
+## Viewer (one template for every case)
+All cases use the same data-driven viewer (`assets/viewer.html`); per-case content lives only in `scene.json`. Never hand-edit a case's viewer.html — fix the template and re-run `build_scene_viewer.py <scene_dir> --title "..."` (idempotent; safe on existing scenes). Features: 3D render / MPR modes, series dropdown (multi-sequence MR), grouped structure list with per-organ show/hide, solo (◐), and slice-focus (⌖ = jump MPR crosshair to the organ centroid and overlay its segmentation mask). NiiVue version is pinned in the template; UI handlers bind before any network load so controls never go dead if a mesh fails.
 
 ## Annotation step (text-only)
 After the scene is built, read the case file's imaging-report findings and add each written finding to `annotations.json` as: quoted report text + the *named structure* it belongs to (e.g., "right kidney, mid-pole — per report: 40×31 mm mixed lesion"). Placement is by structure name from the segmentation output — never by looking at the images. If a finding's structure isn't in the segmentation set, list it under "not localizable in scene".

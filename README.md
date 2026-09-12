@@ -240,6 +240,8 @@ All of the below is the shipped `viewer.html` / pipeline output on the same cons
 | <img src="docs/assets/mpr-sweep.gif" width="330" alt="Multiplanar reconstruction with moving crosshair"/> | **MPR (multiplanar) view** — synced sagittal/coronal/axial panes with crosshair |
 | <img src="docs/assets/series-tour.gif" width="330" alt="Series switcher cycling four MR sequences"/> | **Series switcher** — Sagittal T1 / Sagittal PD / Coronal PD-T2 / Axial PD from one DICOM disc |
 
+Every case ships the *same* data-driven viewer (`skills/imaging-3d/assets/viewer.html` + per-case `scene.json`; NiiVue is vendored, so it works offline). The grouped structure panel gives per-organ show/hide, **solo** (◐ — isolate one structure) and **slice-focus** (⌖ — jump the MPR crosshair to that organ's centroid and overlay its segmentation mask on the slices). Structure names, groups and colors are mapped to Turkish deterministically in `scripts/build_scene_viewer.py`.
+
 Runtime on an Apple-Silicon Mac: `--fast` segmentation ≈ 1–3 min per study; full-res 10–45 min. Cost per study: $0.
 
 ### The Reviewer Gate

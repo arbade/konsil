@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="tr"><head><meta charset="utf-8"><title>Konsil 3D Scene</title>
+<style>
+html,body{margin:0;height:100%;background:#0e0e10;color:#ddd;font:14px -apple-system,"Segoe UI",sans-serif;overflow:hidden}
+#bar{padding:8px 14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;border-bottom:1px solid #2a2a2e}
+#bar b{color:#fff}
+select,button{background:#1c1c21;color:#ddd;border:1px solid #3a3a40;border-radius:6px;padding:5px 10px;font:inherit;cursor:pointer}
+button.active{background:#2e5cff;border-color:#2e5cff;color:#fff}
+.ctl{display:flex;align-items:center;gap:6px;font-size:12px;color:#aaa}
+#main{display:flex;height:calc(100vh - 96px)}
+#side{width:265px;min-width:265px;overflow-y:auto;border-right:1px solid #2a2a2e;padding:6px 0}
+#sideHead{display:flex;gap:6px;padding:2px 10px 8px}
+#sideHead button{font-size:11px;padding:3px 8px}
+details{margin:0 0 2px}
+summary{cursor:pointer;padding:5px 12px;font-size:12px;color:#9a9aa2;user-select:none}
+summary:hover{color:#fff}
+.row{display:flex;align-items:center;gap:6px;padding:3px 8px 3px 20px;font-size:12px;cursor:pointer}
+.row:hover{background:#1a1a1f}
+.row.err{opacity:.45;text-decoration:line-through}
+.row.focused{background:#1d2740}
+.row input{margin:0}
+.sw{display:inline-block;width:10px;min-width:10px;height:10px;border-radius:2px}
+.nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nm small{color:#77777f}
+.rowbtn{border:none;background:none;color:#6a7a9a;padding:0 3px;font-size:13px}
+.rowbtn:hover{color:#fff}
+#gl{flex:1;min-width:0}
+#foot{display:flex;justify-content:space-between;gap:14px;padding:6px 14px;font-size:12px;color:#8a8a92;border-top:1px solid #2a2a2e}
+#status{color:#c9a44a;white-space:nowrap}
+#status.err{color:#e06060}
+</style></head>
+<body>
+<div id="bar">
+  <b id="title">Konsil</b>
+  <select id="series" hidden></select>
+  <button id="mRender" class="active">3D Render</button>
+  <button id="mMPR">Kesitler (MPR)</button>
+  <span class="ctl">Görüntü opaklığı <input id="op" type="range" min="0" max="1" step="0.01" value="1"></span>
+  <span class="ctl" id="clipWrap">Clip <input id="clip" type="range" min="0" max="1" step="0.01" value="1"></span>
+  <button id="btnReset" title="Varsayılan görünüme dön">Sıfırla</button>
+</div>
+<div id="main">
+  <aside id="side">
+    <div id="sideHead">
+      <button id="allOn">Tümü</button><button id="allOff">Hiçbiri</button><button id="allDef">Varsayılan</button>
+    </div>
+    <div id="groups"></div>
+  </aside>
+  <canvas id="gl"></canvas>
+</div>
+<div id="foot">
+  <span>Communication aid only — yorum, radyoloğun yazılı raporuna aittir. Sürükle=döndür · Scroll=yakınlaştır/kesit · Sağ-sürükle=kontrast · ◐=solo · ⌖=kesitlerde odakla</span>
+  <span id="status"></span>
+</div>
+<script type="module">
+const $ = id => document.getElementById(id);
+const statusEl = $("status");
+const setStatus = (msg, err) => { statusEl.textContent = msg || ""; statusEl.classList.toggle("err", !!err); };
+// state mirrored into DOM data-attributes (QA/debug: visible from any JS world)
+const mark = (k, v) => { document.body.dataset[k] = String(v); };
+// NiiVue mesh buffer'ları asenkron güncellenir; updateGLVolume sonrası tetiklenmiş bir
+// yeniden çizim olmazsa sahne eski karede kalır — kısa gecikmeli çift drawScene şart
+let redrawT = null;
+function redraw() {
+  if (!nv) return;
+  nv.drawScene();
+  clearTimeout(redrawT);
+  redrawT = setTimeout(() => { try { nv.drawScene(); } catch (_) {} }, 400);
+}
+const withTimeout = (p, ms, what) => Promise.race([p,
+  new Promise((_, rej) => setTimeout(() => rej(new Error(what + ": zaman aşımı")), ms))]);
+
+// --- state ---
+let nv = null, scene = null, mode = "render", soloName = null, focusedName = null, overlayVol = null;
+const rows = {};   // name -> {row, cb, s}
+
+// --- UI handlers: bound BEFORE any network load so the bar never goes dead ---
+$("mRender").onclick = () => setMode("render");
+$("mMPR").onclick = () => setMode("mpr");
+$("op").oninput = e => { if (nv && nv.volumes.length) { nv.setOpacity(0, parseFloat(e.target.value)); } };
+$("clip").oninput = e => { if (nv) nv.setClipPlane([parseFloat(e.target.value) * 2 - 1, 0, 120]); };
+$("series").onchange = e => loadSeries(e.target.value).catch(err => setStatus(err.message, true));
+$("allOn").onclick = () => setAll(s => true);
+$("allOff").onclick = () => setAll(s => false);
+$("allDef").onclick = () => setAll(s => !!s.on);
+$("btnReset").onclick = async () => {
+  soloName = null;
+  await clearFocus();
+  setAll(s => !!s.on);
+  $("op").value = scene ? (scene.volume_opacity ?? 1) : 1;
+  if (nv && nv.volumes.length) nv.setOpacity(0, parseFloat($("op").value));
+  setMode("render");
+};
+
+let renderOpacity = null; // render modundaki opaklık; MPR'a geçerken saklanır, dönüşte geri yüklenir
+function setMode(m) {
+  const prev = mode;
+  mode = m;
+  if (!nv) return;
+  if (m === "render") {
+    clearFocus();
+    if (prev !== "render" && renderOpacity !== null) { $("op").value = renderOpacity; nv.setOpacity(0, renderOpacity); }
+    nv.setSliceType(nv.sliceTypeRender);
+  } else {
+    if (prev === "render") renderOpacity = parseFloat($("op").value);
+    nv.setSliceType(nv.sliceTypeMultiplanar);
+    if (parseFloat($("op").value) < 0.05) { $("op").value = 1; nv.setOpacity(0, 1); }
+  }
+  $("mRender").classList.toggle("active", m === "render");
+  $("mMPR").classList.toggle("active", m !== "render");
+  mark("mode", m);
+  redraw();
+}
+
+// --- structure visibility ---
+async function ensureMesh(s) {
+  if (s._mesh || s._err) return;
+  if (s._loading) return s._loading;
+  s._loading = (async () => {
+    try {
+      setStatus(`Yükleniyor: ${s.label}…`);
+      // NOT: addMeshFromUrl'e uzantısız "name" verilirse NiiVue format çözümü patlar — name'i URL'den türetmesine izin ver
+      const m = await withTimeout(nv.addMeshFromUrl({ url: s.mesh, rgba255: s.rgba }), 60000, s.label);
+      s._mesh = m;
+      mark("meshCount", nv.meshes.length);
+      setStatus("");
+    } catch (e) {
+      s._err = true;
+      rows[s.name].row.classList.add("err");
+      setStatus(`${s.label} yüklenemedi (${e.message})`, true);
+    } finally { s._loading = null; }
+  })();
+  return s._loading;
+}
+
+function applyVisible(s) {
+  if (!s._mesh) return;
+  const vis = s._on && (!soloName || soloName === s.name);
+  nv.setMeshProperty(s._mesh.id, "visible", vis);
+  redraw();
+}
+
+async function setStructure(s, on) {
+  s._on = on;
+  rows[s.name].cb.checked = on;
+  if (on) await ensureMesh(s);
+  applyVisible(s);
+}
+
+function setAll(pred) {
+  if (!scene) return;
+  soloName = null;
+  scene.structures.forEach(s => setStructure(s, pred(s)));
+}
+
+function toggleSolo(s) {
+  soloName = (soloName === s.name) ? null : s.name;
+  if (soloName) setStructure(s, true);
+  scene.structures.forEach(applyVisible);
+  setStatus(soloName ? `Solo: ${s.label}` : "");
+}
+
+// --- per-organ slice focus: crosshair to centroid + mask overlay on MPR ---
+async function clearFocus() {
+  if (focusedName && rows[focusedName]) rows[focusedName].row.classList.remove("focused");
+  focusedName = null;
+  mark("focused", ""); mark("overlay", false);
+  if (overlayVol && nv) { try { nv.removeVolume(overlayVol); } catch (_) {} overlayVol = null; }
+}
+
+async function focusStructure(s) {
+  if (focusedName === s.name) { await clearFocus(); nv.drawScene(); return; }
+  await clearFocus();
+  await setStructure(s, true);
+  if (s._err) return;
+  setMode("mpr");
+  // centroid from mesh vertices (scanner mm space)
+  try {
+    const p = s._mesh.pts; let x = 0, y = 0, z = 0; const n = p.length / 3;
+    for (let i = 0; i < p.length; i += 3) { x += p[i]; y += p[i + 1]; z += p[i + 2]; }
+    const frac = nv.mm2frac([x / n, y / n, z / n]);
+    nv.scene.crosshairPos = frac;
+  } catch (e) { console.warn("crosshair focus failed", e); }
+  if (s.seg) {
+    try {
+      setStatus(`Maske yükleniyor: ${s.label}…`);
+      overlayVol = await withTimeout(nv.addVolumeFromUrl({ url: s.seg, colormap: "red", opacity: 0.45 }), 60000, "maske");
+      setStatus("");
+    } catch (e) { overlayVol = null; setStatus(`Maske yüklenemedi: ${s.label}`, true); }
+  }
+  focusedName = s.name;
+  rows[s.name].row.classList.add("focused");
+  mark("focused", s.name);
+  mark("overlay", !!overlayVol);
+  nv.updateGLVolume();
+  redraw();
+  setStatus(`Odak: ${s.label} — scroll ile kesitlerde gezin`);
+}
+
+// --- sidebar ---
+function buildSidebar() {
+  const order = ["Organlar", "Solunum", "Damarlar", "Kemik", "Kas", "Diğer"];
+  const byGroup = {};
+  scene.structures.forEach(s => { s._on = !!s.on; (byGroup[s.group ?? "Diğer"] ??= []).push(s); });
+  const box = $("groups");
+  order.concat(Object.keys(byGroup).filter(g => !order.includes(g))).forEach(g => {
+    const list = byGroup[g]; if (!list) return;
+    const det = document.createElement("details");
+    det.open = list.some(s => s.on);
+    const sum = document.createElement("summary");
+    sum.textContent = `${g} (${list.length})`;
+    det.appendChild(sum);
+    list.forEach(s => {
+      const row = document.createElement("div"); row.className = "row"; row.dataset.name = s.name;
+      const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = !!s.on;
+      cb.onchange = () => setStructure(s, cb.checked);
+      const sw = document.createElement("span"); sw.className = "sw";
+      sw.style.background = `rgb(${s.rgba[0]},${s.rgba[1]},${s.rgba[2]})`;
+      const nm = document.createElement("span"); nm.className = "nm";
+      nm.innerHTML = `${s.label} <small>${s.volume_ml} mL</small>`; nm.title = `${s.name} — ${s.volume_ml} mL`;
+      nm.onclick = () => { cb.checked = !cb.checked; setStructure(s, cb.checked); };
+      const solo = document.createElement("button"); solo.className = "rowbtn solo-btn"; solo.textContent = "◐";
+      solo.title = "Solo — sadece bu yapıyı göster"; solo.onclick = () => toggleSolo(s);
+      const foc = document.createElement("button"); foc.className = "rowbtn focus-btn"; foc.textContent = "⌖";
+      foc.title = "Kesitlerde odakla — MPR'da bu organın merkezine git"; foc.onclick = () => focusStructure(s).catch(e => setStatus(e.message, true));
+      row.append(cb, sw, nm, solo, foc);
+      det.appendChild(row);
+      rows[s.name] = { row, cb, s };
+    });
+    box.appendChild(det);
+  });
+}
+
+async function loadSeries(url) {
+  await clearFocus();
+  setStatus("Seri yükleniyor…");
+  await nv.loadVolumes([{ url, colormap: "gray", opacity: parseFloat($("op").value) }]);
+  setMode(mode);
+  setStatus("");
+}
+
+// --- init ---
+async function init() {
+  scene = await (await fetch("scene.json")).json();
+  document.title = scene.title;
+  $("title").textContent = scene.title;
+  if ((scene.volumes ?? []).length > 1) {
+    const sel = $("series"); sel.hidden = false;
+    scene.volumes.forEach(v => { const o = document.createElement("option"); o.value = v.url; o.textContent = v.label; sel.appendChild(o); });
+  }
+  $("op").value = scene.volume_opacity ?? 1;
+  renderOpacity = parseFloat($("op").value);
+  buildSidebar();
+
+  // NiiVue yereldir (build_scene_viewer.py kopyalar) — CDN yok, offline çalışır, sürüm sabit (0.69.0)
+  const { Niivue } = await import("./niivue.esm.js");
+  nv = new Niivue({ backColor: [0.055, 0.055, 0.06, 1], show3Dcrosshair: true });
+  nv.attachTo("gl");
+  window.nv = nv; window.__konsil = { get scene() { return scene; }, get mode() { return mode; }, rows, focusStructure, setMode };
+
+  mark("nv", 1);
+  const vol0 = (scene.volumes ?? [])[0];
+  if (vol0) {
+    setStatus("Görüntü yükleniyor…");
+    await withTimeout(nv.loadVolumes([{ url: vol0.url, colormap: "gray", opacity: parseFloat($("op").value) }]), 120000, "görüntü");
+    mark("volume", 1);
+  }
+  nv.setSliceType(nv.sliceTypeRender);
+  const defaults = scene.structures.filter(s => s.on);
+  for (let i = 0; i < defaults.length; i++) {
+    setStatus(`Yapılar yükleniyor (${i + 1}/${defaults.length}): ${defaults[i].label}…`);
+    await ensureMesh(defaults[i]);
+    applyVisible(defaults[i]);
+  }
+  nv.updateGLVolume();
+  redraw();
+  mark("ready", 1);
+  setStatus("");
+}
+init().catch(e => { console.error(e); mark("initError", e.message); setStatus("Sahne yüklenemedi: " + e.message, true); });
+</script>
+</body></html>
