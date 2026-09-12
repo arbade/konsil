@@ -13,7 +13,7 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT license"></a>
   <img src="https://img.shields.io/badge/runs-100%25%20local-blue" alt="runs 100% local">
-  <img src="https://img.shields.io/badge/AI%20on%20pixels-never-critical" alt="AI never interprets pixels">
+  <img src="https://img.shields.io/badge/AI%20on%20pixels-never%20in%20board%20reasoning-critical" alt="AI never interprets pixels in board reasoning">
   <img src="https://img.shields.io/badge/citations-verified%20in--session-informational" alt="verified citations">
 </p>
 
@@ -61,7 +61,8 @@ Each core mechanism answers a documented failure mode. This is the part of the R
 | **Dissent Ledger** — disagreements recorded verbatim, never smoothed | A confident singular verdict is the most automation-bias-inducing format possible: wrong AI advice measurably drags human experts' accuracy down | Radiology automation-bias experiments (Radiology, 2023) |
 | **In-session citation verification** — an unverified citation does not exist | LLM citation fabrication (measured 18–29% in unguarded systems); even good tool-using agents emit ~23% irrelevant citations | Citation-accuracy evaluations |
 | **Missing Data Gate** — the board refuses to convene on thin input | Model accuracy collapses on unstructured, self-reported histories (≈95% on clean vignettes → <35% with real user-written input) | Real-world input-quality studies (Nature Medicine 2024; user-relay studies) |
-| **Text only; AI never reads pixels** | General VLMs score 8–35% on unselected clinical images with high hallucination rates; adding images to informative text can *reduce* accuracy | Multimodal radiology evaluations 2024–2026, and **our own measurement below** |
+| **Text only; AI never reads pixels in board reasoning** (sole exception: the consent-gated OFF-PROTOCOL read below, which never feeds a board) | General VLMs score 8–35% on unselected clinical images with high hallucination rates; adding images to informative text can *reduce* accuracy | Multimodal radiology evaluations 2024–2026, and **our own measurement below** |
+| **OFF-PROTOCOL read gate** — AI image reading exists only behind a typed-consent gate, forced labeling, a mandatory bottom disclaimer, and a dedicated Reviewer Gate auditor | Automation bias: a fluent AI "normal görünümde" gets read as clearance to skip the radiologist; and VLM finding-fabrication | Automation-bias literature; our own shoulder-001 precedent read (found the burned-in "L" marker, closed a laterality gap — a technical fact, not a diagnosis) |
 | **Reviewer Gate** — four independent auditors before release | Drafting agents smooth disagreement, launder uncertainty markers, and (rarely but really) hallucinate author names | All three caught live in blinded development runs — see below |
 
 Every citation an agent relies on is retrieved and verified inside that agent's own session, and the search logs stay in the run transcripts — so any claim in a board's minutes can be chased back to the query that found it.
@@ -73,10 +74,12 @@ Every citation an agent relies on is retrieved and verified inside that agent's 
 - Convenes a **blind, adversarial board** with live, verified literature retrieval, and outputs **board minutes**: consensus with per-member confidences, a dissent ledger, a can't-miss audit, a cost-aware staged next-step plan, questions for the treating physician/radiologist, and a missing-data list.
 - Maintains **longitudinal cases**: new results re-convene the board in delta mode ("what changed, at what rate, does it alter the prior assessment").
 - Converts DICOM discs into **rotatable 3D scenes and slice views** — deterministically (dcm2niix → TotalSegmentator → marching cubes → NiiVue). Structured outputs (structure names, volumes, laterality) may inform the board **as text**.
+- On the user's explicit, logged request only: an OFF-PROTOCOL observational AI read (deterministically rendered input, region-by-region protocol, confidence on every observation, mandatory disclaimer) — orientation and technical-fact gap-closing, never diagnosis.
 - Runs a **`--solo` baseline mode** so you can measure whether the board beats a single agent on your own cases.
 
 **Refuses:**
 - To let any language/vision model interpret medical image pixels as part of a board's reasoning.
+- To run the OFF-PROTOCOL read path implicitly: it exists only behind /konsil:okuma, an exact typed consent sentence, and output that can never close the formal-report requirement.
 - To output a singular confident verdict ("the diagnosis is X").
 - To convene without intake, or to silently drop `[UNSOURCED]` / `[ESTIMATE]` markers.
 - To address treatment instructions to a patient. Output is framed to the treating clinician, always.
@@ -95,6 +98,8 @@ In blinded end-to-end development runs, the audit layers repeatedly caught the s
 ### Why the no-pixels rule is architecture, not a disclaimer
 
 In development we also scored experimental AI image observations against an independent radiologist's written report. The pattern matched the published literature exactly: reliable on *negative/normal* statements and on deterministic pipeline outputs, weak at *characterizing* what it saw, and blind to subtle findings. The system's calibration held — every image observation had been labeled unverified and converted into *questions for the radiologist* rather than findings, and the "no AI observation may justify any intervention without an independent report correlate" rule prevented a plausible-looking cascade toward an intervention the report showed to be unwarranted.
+
+The rule stands, untouched, as the default — the `AI on pixels — never in board reasoning` badge above states exactly what holds: no board ever reasons over AI pixel interpretation. What now exists beside it is a single **OFF-PROTOCOL** exception: an observational read available only through `/konsil:okuma` behind an exact typed consent sentence, built as a *separate skill with its own charter and its own auditor* — the exception is a separate door with its own lock, not a hole in the wall. Its output is force-labeled, closes with a mandatory unmodifiable disclaimer, and can never satisfy the formal-report requirement or clear the Missing Data Gate's "official radiology report missing" flag; every warning in [Safety & regulatory posture](#safety--regulatory-posture) applies to this path in full. And in the same measured-not-projected spirit: the shoulder-001 precedent read (it found the burned-in "L" laterality marker and closed a laterality gap — a technical fact, not a diagnosis) is the **single** data point behind the interpretive block until the pre-registered D1 experiment completes; the full decision record is in [the discovery document](docs/discovery-off-protocol-goruntu-okuma-2026-09-12.md).
 
 ## Architecture
 
@@ -291,6 +296,7 @@ New Claude Code sessions pick the plugin up automatically; commands appear under
 | `/konsil:board <case-id> [--solo]` | Convenes the board on a completed case file: blind Round 1 → Challenger cross-examination → Steward → Reviewer-Gated minutes. `--solo` runs a single-agent baseline with identical evidence rules, for A/B comparison. |
 | `/konsil:update <case-id> <new docs>` | Longitudinal mode: folds new results into the case, computes interval changes (growth rates, trend slopes), re-convenes in delta mode. The new minutes lead with *what changed*. |
 | `/konsil:imaging <case-id> [--fast] [--mr]` | The deterministic DICOM → 3D pipeline + browser viewer. `--mr` selects the MRI segmentation task. |
+| `/konsil:okuma <case-id \| image>` | **OFF-PROTOCOL** consent-gated AI image read. Deterministic render → systematic observational read with confidence levels. Never a radiology report; the no-pixels default is untouched. |
 
 A typical first session:
 
@@ -319,6 +325,7 @@ cases/<case-id>/
 │   ├── nifti/  segmentations/  meshes/
 │   ├── structures.json         # names + volumes → board-readable text
 │   └── viewer.html             # rotatable browser scene
+├── ai-reads/                   # OFF-PROTOCOL AI reads (consent memlog + read-*-OFF-PROTOCOL.md) — never a report
 └── board-<date>/
     ├── memlog.md               # append-only orchestration log
     ├── round1-<member>.md      # verbatim blind assessments
@@ -415,17 +422,18 @@ Grounded in the measured gaps, roughly in order:
 ```
 konsil/
 ├── .claude-plugin/          # plugin + marketplace manifests
-├── commands/                # /konsil:case | board | update | imaging
+├── commands/                # /konsil:case | board | update | imaging | okuma
 ├── skills/
 │   ├── case-intake/         # intake + Missing Data Gate
 │   ├── board-orchestrator/  # roster, blind rounds, cross-exam, phases
 │   ├── board-report/        # minutes drafting rules + Reviewer Gate loop
 │   ├── literature-protocol/ # evidence rules + API cookbook
 │   ├── case-update/         # longitudinal delta mode
-│   └── imaging-3d/          # deterministic DICOM → 3D scene
+│   ├── imaging-3d/          # deterministic DICOM → 3D scene
+│   └── imaging-ai-read/     # OFF-PROTOCOL consent-gated AI read (separate from imaging-3d)
 ├── agents/                  # specialist, challenger, checklist, steward, reviewer
 ├── templates/               # case-file.md, board-minutes.md
-├── scripts/                 # setup_imaging.sh, dicom_to_scene.py
+├── scripts/                 # setup_imaging.sh, dicom_to_scene.py, dicom_to_png.py
 ├── docs/assets/             # README media (from the author's own anonymized MRI)
 └── cases/                   # your cases live here (gitignored — always empty upstream)
 ```

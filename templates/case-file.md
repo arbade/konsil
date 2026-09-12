@@ -29,6 +29,11 @@ gaps_accepted: []        # filled when user says "proceed with gaps"
 ## Imaging Findings (from written reports only)
 *(Per study: date, modality, institution, findings faithful to the report, impression, recommendations. No pixel interpretation.)*
 
+## AI Görüntü Okumaları (OFF-PROTOCOL)
+| Tarih | Çalışma | Okuma dosyası | Vaka dosyasına işlenen teknik olgular |
+|---|---|---|---|
+*(Populated ONLY by the `imaging-ai-read` skill after logged consent; otherwise leave as `N/A — off-protocol okuma yok`. Technical facts only, each tagged `[KAYNAK: OFF-PROTOCOL AI okuması <tarih>]`; interpretive findings stay quarantined in the read file and never enter the Problem List or Imaging Findings. This section changes neither `intake_status` nor the missing-formal-report flag.)*
+
 ## Procedures & Pathology
 
 ## Medications & History (as documented / as answered at intake)

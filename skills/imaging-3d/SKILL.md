@@ -7,6 +7,8 @@ description: Deterministic DICOM-to-3D pipeline - convert a CT/MRI disc to per-o
 
 **Hard rule:** no language/vision model interprets image pixels anywhere in this pipeline. Every step is deterministic tooling. The output is a *communication aid* — it helps a patient/family/clinician see where the radiologist's written findings live in 3D. All interpretation stays with the written report.
 
+**Off-protocol exception (separate path, not part of this pipeline):** the `imaging-ai-read` skill (`/konsil:okuma`) can produce an AI observational read of an image — but only on the user's explicit typed consent, always labeled OFF-PROTOCOL, and never as a substitute for the formal radiology report. It is a physically separate skill precisely so that nothing in THIS pipeline ever interprets a pixel; the hard rule above is unaffected and remains the default everywhere.
+
 ## Prerequisites (one-time)
 Run `scripts/setup_imaging.sh` — checks/installs: `dcm2niix` (brew), Python venv with `TotalSegmentator`, `nibabel`, `scikit-image`, `trimesh`. Model weights (~few GB) download on first run. On Apple Silicon use `--device mps`. Warn the user: full-res segmentation can take 10–45 min on CPU; `--fast` is ~1–3 min and sufficient for a communication scene.
 

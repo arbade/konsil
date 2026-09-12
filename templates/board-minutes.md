@@ -35,9 +35,12 @@
 ## 11. Missing Data & How to Obtain It
 *(What is missing, why it matters, and the practical step to get it — e.g., request the imaging CD from the hospital, obtain the pathology report.)*
 
+## 11a. OFF-PROTOCOL AI Görüntü Okuması
+*(Only when the case contains an off-protocol AI read — otherwise `N/A — off-protocol okuma yok`. Names the source `ai-reads/*-OFF-PROTOCOL.md` file, quotes the read only here with its own disclaimer kept visible, and states explicitly that the formal radiology report requirement remains open. The read never feeds §6 consensus or the differentials; only its provenance-tagged technical facts may be referenced elsewhere. See board-report drafting rule 8; audited by Reviewer Gate E.)*
+
 ## 12. Sources
 *(Every citation used, grouped by section: First-author Year, Journal — PMID/URL. All verified per the literature protocol; `[UNSOURCED]` and `[ESTIMATE]` items listed separately.)*
 
 ---
 ### Appendix — Process Record
-*(Run workspace path, memlog reference, Reviewer Gate results (A/B/C/D PASS), model/agent counts, date.)*
+*(Run workspace path, memlog reference, Reviewer Gate results (A/B/C/D PASS, plus E when assigned), model/agent counts, date.)*
