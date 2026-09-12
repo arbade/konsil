@@ -2,12 +2,13 @@
 <html lang="tr"><head><meta charset="utf-8"><title>Konsil 3D Scene</title>
 <style>
 html,body{margin:0;height:100%;background:#0e0e10;color:#ddd;font:14px -apple-system,"Segoe UI",sans-serif;overflow:hidden}
+body{display:flex;flex-direction:column}
 #bar{padding:8px 14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;border-bottom:1px solid #2a2a2e}
 #bar b{color:#fff}
 select,button{background:#1c1c21;color:#ddd;border:1px solid #3a3a40;border-radius:6px;padding:5px 10px;font:inherit;cursor:pointer}
 button.active{background:#2e5cff;border-color:#2e5cff;color:#fff}
 .ctl{display:flex;align-items:center;gap:6px;font-size:12px;color:#aaa}
-#main{display:flex;height:calc(100vh - 96px)}
+#main{display:flex;flex:1;min-height:0}
 #side{width:265px;min-width:265px;overflow-y:auto;border-right:1px solid #2a2a2e;padding:6px 0}
 #sideHead{display:flex;gap:6px;padding:2px 10px 8px}
 #sideHead button{font-size:11px;padding:3px 8px}
@@ -24,6 +25,15 @@ summary:hover{color:#fff}
 .nm small{color:#77777f}
 .rowbtn{border:none;background:none;color:#6a7a9a;padding:0 3px;font-size:13px}
 .rowbtn:hover{color:#fff}
+.rowbtn.on{color:#4e7bff}
+.annbadge{border:none;background:none;color:#c9a44a;padding:0 2px;font-size:12px;cursor:pointer}
+#annBox{border-top:1px solid #2a2a2e;margin-top:6px;padding:8px 12px;font-size:12px}
+#annBox h4{margin:0 0 6px;font-size:12px;color:#c9a44a}
+#annBox .ann{margin:0 0 8px;color:#c8c8cf}
+#annBox .ann small{display:block;color:#77777f;margin-top:2px}
+#annNone summary{color:#9a9aa2}
+#annNone .ann{padding:3px 12px 3px 20px;font-size:12px;color:#a8a8af}
+#annNone .ann small{display:block;color:#77777f}
 #gl{flex:1;min-width:0}
 #foot{display:flex;justify-content:space-between;gap:14px;padding:6px 14px;font-size:12px;color:#8a8a92;border-top:1px solid #2a2a2e}
 #status{color:#c9a44a;white-space:nowrap}
@@ -45,6 +55,14 @@ summary:hover{color:#fff}
       <button id="allOn">Tümü</button><button id="allOff">Hiçbiri</button><button id="allDef">Varsayılan</button>
     </div>
     <div id="groups"></div>
+    <div id="annBox" hidden>
+      <h4 id="annTitle">Rapor bulguları</h4>
+      <div id="annList"></div>
+    </div>
+    <details id="annNone" hidden>
+      <summary></summary>
+      <div id="annNoneList"></div>
+    </details>
   </aside>
   <canvas id="gl"></canvas>
 </div>
@@ -72,12 +90,48 @@ const withTimeout = (p, ms, what) => Promise.race([p,
 
 // --- state ---
 let nv = null, scene = null, mode = "render", soloName = null, focusedName = null, overlayVol = null;
-const rows = {};   // name -> {row, cb, s}
+let focusSeq = 0;  // odak akışları için nesil sayacı — örtüşen ⌖ tıkları birbirini iptal eder
+const rows = {};   // name -> {row, cb, solo, s}
+let annByName = {}; // structure name -> [{source, text}] (annotations.json; yoksa boş)
+let annNote = "";   // annotations.json üst-düzey provenance/disclaimer notu
+const setVolOpacity = v => { if (nv && nv.volumes.length) nv.setOpacity(0, v); };
+
+// --- annotations: yazılı rapor alıntıları, yapı adına eşlenmiş (asla piksel yorumu değil) ---
+function showAnnotations(s) {
+  const list = annByName[s.name] || [];
+  const box = $("annBox");
+  if (!list.length) { box.hidden = true; return; }
+  $("annTitle").textContent = `Rapor bulguları — ${s.label}`;
+  const el = $("annList"); el.innerHTML = "";
+  list.forEach(a => {
+    const d = document.createElement("div"); d.className = "ann";
+    d.textContent = `“${a.text}”`;
+    if (a.source) { const sm = document.createElement("small"); sm.textContent = a.source; d.appendChild(sm); }
+    el.appendChild(d);
+  });
+  if (annNote) { const n = document.createElement("div"); n.className = "ann"; const sm = document.createElement("small"); sm.textContent = annNote; n.appendChild(sm); el.appendChild(n); }
+  box.hidden = false;
+}
+
+function buildNotLocalizable(items) {
+  if (!items || !items.length) return;
+  const det = $("annNone");
+  det.querySelector("summary").textContent = `Sahneye yerleştirilemeyen rapor bulguları (${items.length})`;
+  const el = $("annNoneList"); el.innerHTML = "";
+  if (annNote) { const n = document.createElement("div"); n.className = "ann"; const sm = document.createElement("small"); sm.textContent = annNote; n.appendChild(sm); el.appendChild(n); }
+  items.forEach(a => {
+    const d = document.createElement("div"); d.className = "ann";
+    d.textContent = `“${a.text}”`;
+    if (a.source) { const sm = document.createElement("small"); sm.textContent = a.source; d.appendChild(sm); }
+    el.appendChild(d);
+  });
+  det.hidden = false;
+}
 
 // --- UI handlers: bound BEFORE any network load so the bar never goes dead ---
 $("mRender").onclick = () => setMode("render");
 $("mMPR").onclick = () => setMode("mpr");
-$("op").oninput = e => { if (nv && nv.volumes.length) { nv.setOpacity(0, parseFloat(e.target.value)); } };
+$("op").oninput = e => { const v = parseFloat(e.target.value); if (mode === "render") renderOpacity = v; setVolOpacity(v); };
 $("clip").oninput = e => { if (nv) nv.setClipPlane([parseFloat(e.target.value) * 2 - 1, 0, 120]); };
 $("series").onchange = e => loadSeries(e.target.value).catch(err => setStatus(err.message, true));
 $("allOn").onclick = () => setAll(s => true);
@@ -85,10 +139,15 @@ $("allOff").onclick = () => setAll(s => false);
 $("allDef").onclick = () => setAll(s => !!s.on);
 $("btnReset").onclick = async () => {
   soloName = null;
+  Object.values(rows).forEach(r => r.solo.classList.remove("on"));
   await clearFocus();
   setAll(s => !!s.on);
-  $("op").value = scene ? (scene.volume_opacity ?? 1) : 1;
-  if (nv && nv.volumes.length) nv.setOpacity(0, parseFloat($("op").value));
+  renderOpacity = scene ? (scene.volume_opacity ?? 1) : 1;
+  $("op").value = renderOpacity;
+  setVolOpacity(renderOpacity);
+  $("clip").value = 1;
+  if (nv) nv.setClipPlane([1, 0, 120]);
+  setStatus("");
   setMode("render");
 };
 
@@ -96,19 +155,19 @@ let renderOpacity = null; // render modundaki opaklık; MPR'a geçerken saklanı
 function setMode(m) {
   const prev = mode;
   mode = m;
-  if (!nv) return;
+  $("mRender").classList.toggle("active", m === "render");
+  $("mMPR").classList.toggle("active", m !== "render");
+  mark("mode", m);
+  if (!nv) return; // init sonunda setMode(mode) yeniden çağrılır — erken tıklar kaybolmaz
   if (m === "render") {
     clearFocus();
-    if (prev !== "render" && renderOpacity !== null) { $("op").value = renderOpacity; nv.setOpacity(0, renderOpacity); }
+    if (prev !== "render" && renderOpacity !== null) { $("op").value = renderOpacity; setVolOpacity(renderOpacity); }
     nv.setSliceType(nv.sliceTypeRender);
   } else {
     if (prev === "render") renderOpacity = parseFloat($("op").value);
     nv.setSliceType(nv.sliceTypeMultiplanar);
-    if (parseFloat($("op").value) < 0.05) { $("op").value = 1; nv.setOpacity(0, 1); }
+    if (parseFloat($("op").value) < 0.05) { $("op").value = 1; setVolOpacity(1); }
   }
-  $("mRender").classList.toggle("active", m === "render");
-  $("mMPR").classList.toggle("active", m !== "render");
-  mark("mode", m);
   redraw();
 }
 
@@ -120,14 +179,24 @@ async function ensureMesh(s) {
     try {
       setStatus(`Yükleniyor: ${s.label}…`);
       // NOT: addMeshFromUrl'e uzantısız "name" verilirse NiiVue format çözümü patlar — name'i URL'den türetmesine izin ver
-      const m = await withTimeout(nv.addMeshFromUrl({ url: s.mesh, rgba255: s.rgba }), 60000, s.label);
-      s._mesh = m;
-      mark("meshCount", nv.meshes.length);
+      const p = nv.addMeshFromUrl({ url: s.mesh, rgba255: s.rgba });
+      // Zaman aşımı yüklemeyi İPTAL EDEMEZ (NiiVue mesh'i kendisi ekler) — geç gelse bile
+      // sahiplen ki checkbox/solo onu kontrol edebilsin; hayalet mesh kalmasın
+      p.then(m => {
+        s._mesh = m; s._err = false;
+        rows[s.name].row.classList.remove("err"); rows[s.name].row.title = "";
+        mark("meshCount", nv.meshes.length);
+        applyVisible(s);
+      }).catch(() => {});
+      await withTimeout(p, 60000, s.label);
       setStatus("");
     } catch (e) {
-      s._err = true;
-      rows[s.name].row.classList.add("err");
-      setStatus(`${s.label} yüklenemedi (${e.message})`, true);
+      if (!s._mesh) {
+        s._err = true;
+        rows[s.name].row.classList.add("err");
+        rows[s.name].row.title = `${s.label} yüklenemedi (${e.message}) — tekrar denemek için kutuyu yeniden işaretleyin`;
+        setStatus(`${s.label} yüklenemedi (${e.message})`, true);
+      }
     } finally { s._loading = null; }
   })();
   return s._loading;
@@ -143,7 +212,11 @@ function applyVisible(s) {
 async function setStructure(s, on) {
   s._on = on;
   rows[s.name].cb.checked = on;
-  if (on) await ensureMesh(s);
+  if (on) {
+    // hata kalıcı değildir: kullanıcı kutuyu yeniden işaretlerse tekrar dene
+    if (s._err && !s._loading) { s._err = false; rows[s.name].row.classList.remove("err"); }
+    await ensureMesh(s);
+  }
   applyVisible(s);
 }
 
@@ -154,7 +227,9 @@ function setAll(pred) {
 }
 
 function toggleSolo(s) {
+  if (soloName !== s.name && s._err) { setStatus(`${s.label} yüklenemedi — solo yapılamıyor`, true); return; }
   soloName = (soloName === s.name) ? null : s.name;
+  Object.values(rows).forEach(r => r.solo.classList.toggle("on", soloName === r.s.name));
   if (soloName) setStructure(s, true);
   scene.structures.forEach(applyVisible);
   setStatus(soloName ? `Solo: ${s.label}` : "");
@@ -162,17 +237,24 @@ function toggleSolo(s) {
 
 // --- per-organ slice focus: crosshair to centroid + mask overlay on MPR ---
 async function clearFocus() {
+  focusSeq++; // bekleyen odak akışlarını iptal et
+  if (focusedName) setStatus("");
   if (focusedName && rows[focusedName]) rows[focusedName].row.classList.remove("focused");
   focusedName = null;
   mark("focused", ""); mark("overlay", false);
-  if (overlayVol && nv) { try { nv.removeVolume(overlayVol); } catch (_) {} overlayVol = null; }
+  $("annBox").hidden = true;
+  overlayVol = null;
+  // handle'ı kaybolmuş (öksüz) maskeler dahil: ana görüntü dışındaki tüm volumeleri kaldır
+  if (nv) { while (nv.volumes.length > 1) { try { nv.removeVolume(nv.volumes[nv.volumes.length - 1]); } catch (_) { break; } } }
 }
 
 async function focusStructure(s) {
-  if (focusedName === s.name) { await clearFocus(); nv.drawScene(); return; }
+  if (focusedName === s.name) { await clearFocus(); redraw(); return; }
   await clearFocus();
+  const seq = focusSeq; // clearFocus arttırdı; bu akış bu nesle ait
   await setStructure(s, true);
-  if (s._err) return;
+  if (seq !== focusSeq) return; // arada başka odak/temizlik oldu
+  if (s._err || !s._mesh) { setStatus(`${s.label} yüklenemedi — odaklanamıyor`, true); return; }
   setMode("mpr");
   // centroid from mesh vertices (scanner mm space)
   try {
@@ -182,16 +264,20 @@ async function focusStructure(s) {
     nv.scene.crosshairPos = frac;
   } catch (e) { console.warn("crosshair focus failed", e); }
   if (s.seg) {
-    try {
-      setStatus(`Maske yükleniyor: ${s.label}…`);
-      overlayVol = await withTimeout(nv.addVolumeFromUrl({ url: s.seg, colormap: "red", opacity: 0.45 }), 60000, "maske");
-      setStatus("");
-    } catch (e) { overlayVol = null; setStatus(`Maske yüklenemedi: ${s.label}`, true); }
+    setStatus(`Maske yükleniyor: ${s.label}…`);
+    // await ETME: geç çözülen maske bayatsa hemen kaldırılır — öksüz overlay kalmaz
+    nv.addVolumeFromUrl({ url: s.seg, colormap: "red", opacity: 0.45 }).then(v => {
+      if (seq !== focusSeq) { try { nv.removeVolume(v); } catch (_) {} return; }
+      overlayVol = v;
+      mark("overlay", true);
+      setStatus(`Odak: ${s.label} — scroll ile kesitlerde gezin`);
+      redraw();
+    }).catch(() => { if (seq === focusSeq) setStatus(`Maske yüklenemedi: ${s.label}`, true); });
   }
   focusedName = s.name;
   rows[s.name].row.classList.add("focused");
+  showAnnotations(s);
   mark("focused", s.name);
-  mark("overlay", !!overlayVol);
   nv.updateGLVolume();
   redraw();
   setStatus(`Odak: ${s.label} — scroll ile kesitlerde gezin`);
@@ -205,6 +291,7 @@ function buildSidebar() {
   const box = $("groups");
   order.concat(Object.keys(byGroup).filter(g => !order.includes(g))).forEach(g => {
     const list = byGroup[g]; if (!list) return;
+    list.sort((a, b) => a.label.localeCompare(b.label, "tr"));
     const det = document.createElement("details");
     det.open = list.some(s => s.on);
     const sum = document.createElement("summary");
@@ -216,16 +303,24 @@ function buildSidebar() {
       cb.onchange = () => setStructure(s, cb.checked);
       const sw = document.createElement("span"); sw.className = "sw";
       sw.style.background = `rgb(${s.rgba[0]},${s.rgba[1]},${s.rgba[2]})`;
+      // textContent kullan: scene.json alanları HTML olarak yorumlanmasın (XSS)
       const nm = document.createElement("span"); nm.className = "nm";
-      nm.innerHTML = `${s.label} <small>${s.volume_ml} mL</small>`; nm.title = `${s.name} — ${s.volume_ml} mL`;
+      nm.textContent = s.label + " ";
+      const ml = document.createElement("small"); ml.textContent = `${s.volume_ml} mL`; nm.appendChild(ml);
+      nm.title = `${s.name} — ${s.volume_ml} mL`;
       nm.onclick = () => { cb.checked = !cb.checked; setStructure(s, cb.checked); };
       const solo = document.createElement("button"); solo.className = "rowbtn solo-btn"; solo.textContent = "◐";
       solo.title = "Solo — sadece bu yapıyı göster"; solo.onclick = () => toggleSolo(s);
       const foc = document.createElement("button"); foc.className = "rowbtn focus-btn"; foc.textContent = "⌖";
       foc.title = "Kesitlerde odakla — MPR'da bu organın merkezine git"; foc.onclick = () => focusStructure(s).catch(e => setStatus(e.message, true));
       row.append(cb, sw, nm, solo, foc);
+      if ((annByName[s.name] || []).length) {
+        const ab = document.createElement("button"); ab.className = "annbadge"; ab.textContent = "📄";
+        ab.title = "Yazılı rapor bulgusu var — göster"; ab.onclick = () => showAnnotations(s);
+        row.appendChild(ab);
+      }
       det.appendChild(row);
-      rows[s.name] = { row, cb, s };
+      rows[s.name] = { row, cb, solo, s };
     });
     box.appendChild(det);
   });
@@ -234,14 +329,18 @@ function buildSidebar() {
 async function loadSeries(url) {
   await clearFocus();
   setStatus("Seri yükleniyor…");
-  await nv.loadVolumes([{ url, colormap: "gray", opacity: parseFloat($("op").value) }]);
+  try {
+    await withTimeout(nv.loadVolumes([{ url, colormap: "gray", opacity: parseFloat($("op").value) }]), 120000, "seri");
+    setStatus("");
+  } catch (e) { setStatus("Seri yüklenemedi: " + e.message, true); }
   setMode(mode);
-  setStatus("");
 }
 
 // --- init ---
 async function init() {
-  scene = await (await fetch("scene.json")).json();
+  const resp = await fetch("scene.json");
+  if (!resp.ok) throw new Error(`scene.json okunamadı (HTTP ${resp.status})`);
+  scene = await resp.json();
   document.title = scene.title;
   $("title").textContent = scene.title;
   if ((scene.volumes ?? []).length > 1) {
@@ -250,6 +349,18 @@ async function init() {
   }
   $("op").value = scene.volume_opacity ?? 1;
   renderOpacity = parseFloat($("op").value);
+  // annotations.json isteğe bağlıdır — yoksa arayüz değişmez; bozuksa sessiz kalma
+  try {
+    const r = await fetch("annotations.json");
+    if (r.ok) {
+      try {
+        const ann = await r.json();
+        annNote = ann.note || "";
+        (ann.annotations || []).forEach(a => (annByName[a.structure] ??= []).push(a));
+        buildNotLocalizable(ann.not_localizable);
+      } catch (e) { setStatus("annotations.json bozuk — rapor bulguları gösterilemiyor", true); }
+    }
+  } catch (_) {}
   buildSidebar();
 
   // NiiVue yereldir (build_scene_viewer.py kopyalar) — CDN yok, offline çalışır, sürüm sabit (0.69.0)
@@ -260,22 +371,25 @@ async function init() {
 
   mark("nv", 1);
   const vol0 = (scene.volumes ?? [])[0];
+  let volErr = null;
   if (vol0) {
     setStatus("Görüntü yükleniyor…");
-    await withTimeout(nv.loadVolumes([{ url: vol0.url, colormap: "gray", opacity: parseFloat($("op").value) }]), 120000, "görüntü");
-    mark("volume", 1);
+    try {
+      await withTimeout(nv.loadVolumes([{ url: vol0.url, colormap: "gray", opacity: parseFloat($("op").value) }]), 120000, "görüntü");
+      mark("volume", 1);
+    } catch (e) { volErr = e.message; } // hacim inmese de yapılar yüklensin
   }
-  nv.setSliceType(nv.sliceTypeRender);
   const defaults = scene.structures.filter(s => s.on);
   for (let i = 0; i < defaults.length; i++) {
     setStatus(`Yapılar yükleniyor (${i + 1}/${defaults.length}): ${defaults[i].label}…`);
     await ensureMesh(defaults[i]);
     applyVisible(defaults[i]);
   }
+  setMode(mode); // init sırasında tıklanmış olabilecek modu şimdi gerçekten uygula
   nv.updateGLVolume();
   redraw();
   mark("ready", 1);
-  setStatus("");
+  setStatus(volErr ? `Görüntü yüklenemedi (${volErr}) — yalnızca yapılar gösteriliyor` : "", !!volErr);
 }
 init().catch(e => { console.error(e); mark("initError", e.message); setStatus("Sahne yüklenemedi: " + e.message, true); });
 </script>

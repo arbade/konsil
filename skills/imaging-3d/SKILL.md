@@ -22,14 +22,37 @@ cases/<case-id>/inbox/DICOM/
       4. structure volumes (ml) → structures.json  (this structured data MAY be given to the board as text)
       5. scripts/build_scene_viewer.py → scene.json (Turkish labels/groups/colors per structure)
          + copies the SHARED viewer template skills/imaging-3d/assets/viewer.html
+         + copies the vendored NiiVue bundle (assets/niivue.esm.js) next to it (offline, pinned version)
   → cases/<case-id>/scene/   (serve the dir: python3 -m http.server -d scene/, open viewer.html)
 ```
 
 ## Viewer (one template for every case)
-All cases use the same data-driven viewer (`assets/viewer.html`); per-case content lives only in `scene.json`. Never hand-edit a case's viewer.html — fix the template and re-run `build_scene_viewer.py <scene_dir> --title "..."` (idempotent; safe on existing scenes). Features: 3D render / MPR modes, series dropdown (multi-sequence MR), grouped structure list with per-organ show/hide, solo (◐), and slice-focus (⌖ = jump MPR crosshair to the organ centroid and overlay its segmentation mask). NiiVue version is pinned in the template; UI handlers bind before any network load so controls never go dead if a mesh fails.
+All cases use the same data-driven viewer (`assets/viewer.html`); per-case content lives only in `scene.json`:
+
+```json
+{
+  "title": "Konsil — Abdomen BT (23.05.2026)",
+  "volumes": [{"label": "Seri 4 — Sagittal T1", "url": "nifti/Seri4.nii.gz"}],
+  "volume_opacity": 0.0,
+  "structures": [{"name": "liver", "label": "Karaciğer", "group": "Organlar",
+                  "volume_ml": 1982.4, "mesh": "meshes/liver.stl", "rgba": [150,90,60,220],
+                  "on": true, "seg": "segmentations/liver.nii.gz"}]
+}
+```
+(`seg` is present only when the mask file exists; `on` marks default-visible structures; `volume_opacity` defaults to 0 for scenes with >5 structures, else 1.) Never hand-edit a case's viewer.html — fix the template and re-run `build_scene_viewer.py <scene_dir> --title "..."` (idempotent; safe on existing scenes). Features: 3D render / MPR modes, series dropdown (multi-sequence MR), grouped structure list with per-organ show/hide, solo (◐), and slice-focus (⌖ = jump MPR crosshair to the organ centroid and overlay its segmentation mask). NiiVue version is pinned in the template; UI handlers bind before any network load so controls never go dead if a mesh fails.
 
 ## Annotation step (text-only)
-After the scene is built, read the case file's imaging-report findings and add each written finding to `annotations.json` as: quoted report text + the *named structure* it belongs to (e.g., "right kidney, mid-pole — per report: 40×31 mm mixed lesion"). Placement is by structure name from the segmentation output — never by looking at the images. If a finding's structure isn't in the segmentation set, list it under "not localizable in scene".
+After the scene is built, read the case file's imaging-report findings and write `scene/annotations.json`: quoted report text + the *named structure* it belongs to. Placement is by structure name from the segmentation output — never by looking at the images. If a finding's structure isn't in the segmentation set, list it under `not_localizable`. If the quoted report is from a DIFFERENT study than the scene's source volume, say so in `source` and in the top-level `note`. Schema:
+
+```json
+{
+  "note": "provenance + 'yorum radyoloğa aittir' disclaimer",
+  "annotations": [{"structure": "kidney_right", "source": "US raporu 10.09.2026", "text": "verbatim quote"}],
+  "not_localizable": [{"source": "...", "text": "..."}]
+}
+```
+
+The viewer picks this file up automatically (optional — absent file changes nothing): structures with annotations get a 📄 badge, the quotes appear in the sidebar panel when the badge is clicked or the structure is slice-focused (⌖), and `not_localizable` items are listed at the bottom of the sidebar.
 
 ## What the board may consume
 Only `structures.json` (names + volumes) and the written reports. Never screenshots of the scene.

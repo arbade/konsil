@@ -12,6 +12,10 @@ Usage:
 import argparse, json, subprocess, sys, tempfile
 from pathlib import Path
 
+# baştan import et: saatlik segmentasyon bittikten sonra ImportError ile iş kaybetme
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from build_scene_viewer import build as build_viewer
+
 def run(cmd):
     print("+", " ".join(map(str, cmd)), flush=True)
     subprocess.run([str(c) for c in cmd], check=True)
@@ -30,7 +34,10 @@ def main():
     seg_dir = out / "segmentations"
     mesh_dir = out / "meshes"; mesh_dir.mkdir(exist_ok=True)
 
-    # 1. DICOM -> NIfTI
+    # 1. DICOM -> NIfTI (önce eski çalıştırmanın volume* kalıntılarını temizle —
+    # dcm2niix üstüne yazmaz, bayat seriler yanlışlıkla seçilebilir)
+    for stale in nifti_dir.glob("volume*"):
+        stale.unlink()
     run(["dcm2niix", "-z", "y", "-f", "volume", "-o", nifti_dir, a.dicom_dir])
     vols = sorted(nifti_dir.glob("volume*.nii.gz"))
     if not vols:
@@ -64,7 +71,10 @@ def main():
             verts, faces, _, _ = measure.marching_cubes(data.astype(np.uint8), level=0.5)
             verts = nib.affines.apply_affine(img.affine, verts)  # to scanner mm space
             mesh = trimesh.Trimesh(vertices=verts, faces=faces)
-            mesh = mesh.simplify_quadric_decimation(int(len(mesh.faces) * 0.25) or 1000)
+            try:
+                mesh = mesh.simplify_quadric_decimation(percent=0.25)  # trimesh >= 4
+            except TypeError:
+                mesh = mesh.simplify_quadric_decimation(int(len(mesh.faces) * 0.25) or 1000)  # eski imza: face_count
             mesh.export(str(mesh_dir / f"{name}.stl"))
             structures.append({"name": name, "volume_ml": vol_ml, "mesh": f"meshes/{name}.stl"})
         except Exception as e:
@@ -74,8 +84,9 @@ def main():
     print(f"-- {len(structures)} structures -> structures.json")
 
     # 4. Viewer — shared template + scene.json (see build_scene_viewer.py)
-    from build_scene_viewer import build as build_viewer
-    build_viewer(out, title=a.title, volumes=[{"label": vol.name.replace(".nii.gz", ""), "url": f"nifti/{vol.name}"}])
+    # dcm2niix birden çok seri üretmişse hepsi seri menüsüne girsin (segmentasyon yine vols[0] üzerinden)
+    build_viewer(out, title=a.title,
+                 volumes=[{"label": v.name.replace(".nii.gz", ""), "url": f"nifti/{v.name}"} for v in vols])
     print(f"-- open {out/'viewer.html'} in a browser (serve dir: python3 -m http.server -d {out})")
 
 if __name__ == "__main__":

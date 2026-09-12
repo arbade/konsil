@@ -96,6 +96,11 @@ STRUCTURES = {
     "gluteus_medius_right": ("Sağ gluteus medius", KAS, (178, 84, 84, 210), False),
     "gluteus_minimus_left": ("Sol gluteus minimus", KAS, (182, 86, 86, 210), False),
     "gluteus_minimus_right": ("Sağ gluteus minimus", KAS, (182, 86, 86, 210), False),
+    # total_mr görevi bazı yapıları TARAFSIZ/BİRLEŞİK adlarla üretir
+    "vertebrae":            ("Vertebralar", KEM, (222, 214, 190, 235), False),
+    "ribs":                 ("Kostalar", KEM, (218, 210, 188, 225), False),
+    "intervertebral_discs": ("İntervertebral diskler", KEM, (200, 205, 215, 225), False),
+    "spinal_canal":         ("Spinal kanal", ORG, (230, 230, 160, 255), False),
 }
 
 def classify(name):
@@ -120,7 +125,7 @@ def detect_volumes(scene_dir):
 
 def build(scene_dir, title, volumes=None, volume_opacity=None):
     scene_dir = Path(scene_dir)
-    structures_in = json.loads((scene_dir / "structures.json").read_text())
+    structures_in = json.loads((scene_dir / "structures.json").read_text(encoding="utf-8"))
     out = []
     for s in structures_in:
         label, group, rgba, on = classify(s["name"])
@@ -149,7 +154,7 @@ def build(scene_dir, title, volumes=None, volume_opacity=None):
         "volume_opacity": volume_opacity,
         "structures": out,
     }
-    (scene_dir / "scene.json").write_text(json.dumps(scene, ensure_ascii=False, indent=2))
+    (scene_dir / "scene.json").write_text(json.dumps(scene, ensure_ascii=False, indent=2), encoding="utf-8")
     shutil.copy(TEMPLATE, scene_dir / "viewer.html")
     shutil.copy(TEMPLATE.parent / "niivue.esm.js", scene_dir / "niivue.esm.js")
     print(f"-- scene.json: {len(out)} yapı, {len(volumes)} seri -> {scene_dir/'viewer.html'}")
@@ -166,7 +171,10 @@ def main():
     if a.volume:
         volumes = []
         for v in a.volume:
-            label, _, url = v.partition("=")
+            label, sep, url = v.partition("=")
+            if not sep:  # '=' yoksa değer yoldur; etiketi dosya adından türet
+                url = label
+                label = Path(url).name.replace(".nii.gz", "").replace(".nii", "")
             volumes.append({"label": label, "url": url})
     build(a.scene_dir, a.title, volumes, a.volume_opacity)
 

@@ -5,7 +5,10 @@
   &nbsp;&nbsp;
   <img src="docs/assets/femur-3d.gif" width="340" alt="Rotating 3D femur surface reconstructed deterministically with TotalSegmentator from the same MRI"/>
 </p>
-<p align="center"><sub><em>Both animations were produced by Konsil's <strong>deterministic</strong> imaging pipeline from the author's own anonymized knee MRI (shared with consent): left — windowed slice cine from raw DICOM; right — 3D bone surface segmented by TotalSegmentator and meshed with marching cubes. <strong>No AI model interpreted a single pixel to make these.</strong></em></sub></p>
+<p align="center">
+  <img src="docs/assets/organ-focus.gif" width="690" alt="Konsil viewer: slice-focus on the femur with the segmentation mask overlaid on MPR slices and the radiologist's written finding quoted in the sidebar"/>
+</p>
+<p align="center"><sub><em>All animations were produced by Konsil's <strong>deterministic</strong> imaging pipeline from the author's own anonymized knee MRI (shared with consent): top left — windowed slice cine from raw DICOM; top right — 3D bone surface segmented by TotalSegmentator and meshed with marching cubes; bottom — the shipped viewer slice-focusing a structure (⌖): crosshair at its centroid, segmentation mask over the MPR panes, and the radiologist's <strong>written</strong> finding quoted beside it. <strong>No AI model interpreted a single pixel to make these.</strong></em></sub></p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT license"></a>
@@ -236,9 +239,10 @@ All of the below is the shipped `viewer.html` / pipeline output on the same cons
 |---|---|
 | <img src="docs/assets/render-3d.gif" width="330" alt="Volume render rotating"/> | **3D volume render** — GPU raycast of the raw volume, drag-to-rotate in the browser |
 | <img src="docs/assets/clip-sweep.gif" width="330" alt="Clip plane sweeping through the volume render"/> | **Clip plane** — slider cuts into the render to expose interior anatomy |
-| <img src="docs/assets/mesh-overlay.gif" width="330" alt="Segmented femur mesh overlaid on the volume render"/> | **Segmentation overlay** — TotalSegmentator's femur mesh registered over the volume; the same output feeds the board structure names, volumes and laterality as *text* |
-| <img src="docs/assets/mpr-sweep.gif" width="330" alt="Multiplanar reconstruction with moving crosshair"/> | **MPR (multiplanar) view** — synced sagittal/coronal/axial panes with crosshair |
+| <img src="docs/assets/mesh-overlay.gif" width="330" alt="Segmented femur mesh rendered solo"/> | **Per-structure mesh** — TotalSegmentator's femur mesh rendered on its own (solo ◐); the same output feeds the board structure names, volumes and laterality as *text* |
+| <img src="docs/assets/mpr-sweep.gif" width="330" alt="Multiplanar reconstruction with moving crosshair and segmentation overlay"/> | **MPR (multiplanar) view** — synced sagittal/coronal/axial panes with crosshair; the focused structure's segmentation mask is overlaid on the slices |
 | <img src="docs/assets/series-tour.gif" width="330" alt="Series switcher cycling four MR sequences"/> | **Series switcher** — Sagittal T1 / Sagittal PD / Coronal PD-T2 / Axial PD from one DICOM disc |
+| <img src="docs/assets/organ-focus.gif" width="330" alt="Slice-focus on a structure with the written-report annotation panel"/> | **Slice-focus + report annotations** — ⌖ jumps the MPR crosshair to the structure's centroid and the sidebar quotes the radiologist's *written* findings for it (`annotations.json`); findings with no segmented structure are listed as "not localizable" |
 
 Every case ships the *same* data-driven viewer (`skills/imaging-3d/assets/viewer.html` + per-case `scene.json`; NiiVue is vendored, so it works offline). The grouped structure panel gives per-organ show/hide, **solo** (◐ — isolate one structure) and **slice-focus** (⌖ — jump the MPR crosshair to that organ's centroid and overlay its segmentation mask on the slices). Structure names, groups and colors are mapped to Turkish deterministically in `scripts/build_scene_viewer.py`.
 
