@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "konsil-marketplace",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Marketplace for the Konsil AI medical board plugin",
   "owner": {
     "name": "arbade",

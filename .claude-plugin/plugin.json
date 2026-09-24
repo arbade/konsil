@@ -1,6 +1,6 @@
 {
   "name": "konsil",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "AI medical case-review board for Claude Code: independent specialist subagents with verified live literature retrieval, adversarial cross-examination (Challenger / Can't-Miss / Steward), a dissent-preserving board minutes report, longitudinal case files, and a deterministic (no-AI-on-pixels) DICOM-to-3D communication scene. Preparation and second-opinion material for review with a clinician - not diagnosis.",
   "author": {
     "name": "arbade",
